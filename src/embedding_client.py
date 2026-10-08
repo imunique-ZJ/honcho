@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 import time
 from collections import defaultdict
@@ -275,12 +276,21 @@ class _EmbeddingClient:
         return self.transport
 
     def _validate_embedding_dimensions(self, embedding: list[float]) -> list[float]:
-        if len(embedding) != self.vector_dimensions:
-            raise ValueError(
-                f"Embedding dimension mismatch for {self.transport}:{self.model}. "
-                + f"Expected {self.vector_dimensions}, got {len(embedding)}."
-            )
-        return embedding
+        if len(embedding) == self.vector_dimensions:
+            return embedding
+        # Matryoshka Representation Learning (MRL) truncation for models like Qwen3-Embedding
+        if len(embedding) > self.vector_dimensions and (
+            "qwen" in self.model.lower() or "mrl" in self.model.lower()
+        ):
+            truncated = embedding[: self.vector_dimensions]
+            norm = math.sqrt(sum(x * x for x in truncated))
+            if norm > 0:
+                return [x / norm for x in truncated]
+            return truncated
+        raise ValueError(
+            f"Embedding dimension mismatch for {self.transport}:{self.model}. "
+            + f"Expected {self.vector_dimensions}, got {len(embedding)}."
+        )
 
     def _apply_encoding_format(self, openai_kwargs: dict[str, Any]) -> None:
         """Set the embedding wire format on an openai request.

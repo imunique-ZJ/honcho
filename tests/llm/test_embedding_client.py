@@ -139,6 +139,49 @@ async def test_openai_embedding_client_rejects_dimension_mismatch(
         await client.embed("hello world")
 
 
+@pytest.mark.asyncio
+async def test_openai_embedding_client_mrl_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_embeddings = FakeOpenAIEmbeddingsAPI([1.0] * 16)
+
+    class FakeOpenAIClient:
+        def __init__(
+            self,
+            *,
+            api_key: str | None,
+            base_url: str | None,
+            timeout: float | None = None,
+        ) -> None:
+            self.embeddings: FakeOpenAIEmbeddingsAPI = fake_embeddings
+
+    monkeypatch.setattr("openai.AsyncOpenAI", FakeOpenAIClient)
+
+    client = _EmbeddingClient(
+        EmbeddingModelConfig(
+            transport="openai",
+            model="Qwen3-Embedding-4B-GGUF-Q4_K_M",
+            api_key="test-key",
+        ),
+        vector_dimensions=8,
+        max_input_tokens=8192,
+        max_tokens_per_request=300_000,
+        send_dimensions=False,
+    )
+
+    embedding = await client.embed("hello world")
+
+    assert len(embedding) == 8
+    import math
+    expected_val = 1.0 / math.sqrt(8)
+    for v in embedding:
+        assert math.isclose(v, expected_val, rel_tol=1e-5)
+    norm = math.sqrt(sum(v * v for v in embedding))
+    assert math.isclose(norm, 1.0, rel_tol=1e-5)
+
+
+
+
 def test_gemini_embedding_client_gemini_001_caps_at_2048(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
